@@ -1,0 +1,118 @@
+# Fusion Model with Differential learning (Language Loss Disabled)
+
+# 1. 實驗目錄與時程
+exp_dir: exp/fusion_diff_lr_v1_run1
+num_epochs: 20
+save_epoch_interval: 4
+num_avg: 5
+seed: 42
+gpus: [0]
+enable_amp: true
+
+# 2. 數據集路徑
+train_data: data/tidyvoice_train/shard.list
+train_label: data/tidyvoice_train/utt2spk
+# 語言Loss關閉，不使用 train_lang_label
+# train_lang_label: data/tidyvoice_train/utt2lang
+
+# 3. 資料讀取 (針對 RTX 5090 優化)
+dataloader_args:
+  batch_size: 48
+  drop_last: true
+  num_workers: 8
+  pin_memory: true
+  prefetch_factor: 4
+
+# 4. 前端處理 (SpecAug 關閉, Match Best Version Run 8)
+dataset_args:
+  frontend: raw_fbank
+  resample_rate: 16000
+  sample_num_per_epoch: 0
+  speed_perturb: false
+  fbank_args: 
+    num_mel_bins: 80
+    frame_shift: 10
+    frame_length: 25
+  spec_aug: true
+  spec_aug_args:
+    num_t_mask: 1
+    num_f_mask: 1
+    max_t: 10
+    max_f: 8
+    prob: 0.5
+
+# 5. 模型架構
+model: FusionSpeakerModel
+model_args:
+  w2v2_type: Wav2Vec2Speaker
+  resnet_type: SimAM_ResNet34_ASP
+  embed_dim: 256                    # Bottleneck output dim (512 -> 256)
+  wav_scp_path: data/tidyvoice_train/wav.scp 
+  
+  # 語言Loss關閉
+  num_languages: 0
+  grl_lambda: 0.0
+
+  w2v2_args:
+    embed_dim: 256
+    pooling_func: ASTP
+    feat_dim: 1024
+    pretrained_path: exp/wav2vec2_xlsr_6epoch/wav2vec2-xls-r-300m
+    freeze_feature_extractor: true
+    freeze_all_layers: false
+    model_init: null
+
+  resnet_args:
+    embed_dim: 256
+    in_planes: 64
+    acoustic_dim: 80
+    dropout: 0.1
+    model_init: exp/samresnet34_voxblink_ft_tidy/models_pretrained/avg_model.pt
+
+# 6. Loss & Projection (Match Best Version Run 8: Scale 56)
+projection_args:
+  project_type: arc_margin
+  scale: 56.0                     # 回歸 Run 8 最佳參數
+  easy_margin: false
+loss: CrossEntropyLoss
+loss_args: {}
+
+# 7. 優化器與差異化學習率
+optimizer: AdamW
+optimizer_args:
+  lr: 4.0e-5                      # Base LR set to 4.0e-5 (Same as Run 8 Global LR)
+  weight_decay: 0.01
+
+discriminative_lr:
+  enabled: true
+  # 注意: 這裡的數值是相對於 optimizer_args.lr (4.0e-5) 的 *倍率 (Multiplier)*
+  # Base LR = 4.0e-5, 目標: Backbone (1e-6~1e-8), Head (1e-3~1e-5)
+  lr_groups:
+    w2v2_backbone: 0.01           # 0.01x -> 4.0e-7 (符合先設 1e-6~1e-8)
+    w2v2_head: 0.01               # 0.01x -> 4.0e-7
+    resnet_backbone: 0.01         # 0.01x -> 4.0e-7
+    resnet_head: 0.01             # 0.01x -> 4.0e-7
+    fusion: 2.5                   # 2.5x  -> 1.0e-4 (調整為較保守的 1e-4)
+    projection: 2.5               # 2.5x  -> 1.0e-4 (調整為較保守的 1e-4)
+    other: 1.0                    # 1.0x  -> 4.0e-5
+
+# 8. 學習率排程
+scheduler: ExponentialDecrease
+scheduler_args:
+  initial_lr: 4.0e-5
+  final_lr: 1.0e-6
+  warm_up_epoch: 0                # Run 8 had 0 warmup
+  scale_ratio: 1
+
+# 9. Margin 排程 (Match Best Version Run 8)
+margin_update:
+  increase_start_epoch: 2
+  fix_start_epoch: 10
+  initial_margin: 0.1
+  final_margin: 0.35              # Run 8: 0.35
+  update_margin: true
+  epoch_iter: 0
+  increase_type: linear
+margin_scheduler: MarginScheduler
+
+log_batch_interval: 100

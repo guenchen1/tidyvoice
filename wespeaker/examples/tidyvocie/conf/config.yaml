@@ -1,0 +1,100 @@
+data_type: shard
+dataloader_args:
+  batch_size: 48
+  drop_last: true
+  num_workers: 8
+  pin_memory: true
+  prefetch_factor: 4
+dataset_args:
+  fbank_args:
+    frame_length: 25
+    frame_shift: 10
+    num_mel_bins: 80
+  frontend: raw_fbank
+  resample_rate: 16000
+  sample_num_per_epoch: 0
+  spec_aug: false
+  spec_aug_args:
+    max_f: 16
+    max_t: 20
+    num_f_mask: 2
+    num_t_mask: 3
+    prob: 0.6
+  speed_perturb: false
+discriminative_lr:
+  enabled: true
+  lr_groups:
+    fusion: 10.0
+    other: 1.0
+    projection: 10.0
+    resnet_backbone: 0.25
+    resnet_head: 0.25
+    wavlm_backbone: 0.25
+    wavlm_head: 0.25
+enable_amp: true
+exp_dir: exp/fusion_wavlm_large_samresnet34_voxblink_ft_tidy15
+gpus:
+- 0
+log_batch_interval: 100
+loss: CrossEntropyLoss
+loss_args: {}
+margin_scheduler: MarginScheduler
+margin_update:
+  epoch_iter: 5463
+  final_margin: 0.35
+  fix_start_epoch: 22
+  increase_start_epoch: 2
+  increase_type: linear
+  initial_margin: 0.0
+  update_margin: true
+model: FusionWavLMModel
+model_args:
+  embed_dim: 256
+  grl_lambda: 0.1
+  num_languages: 40
+  resnet_args:
+    acoustic_dim: 80
+    dropout: 0.1
+    embed_dim: 256
+    in_planes: 64
+    model_init: exp/samresnet34_voxblink_ft_tidy/models_pretrained/avg_model.pt
+  resnet_type: SimAM_ResNet34_ASP
+  wavlm_args:
+    embed_dim: 256
+    feat_dim: 1024
+    freeze_all_layers: false
+    freeze_feature_extractor: true
+    model_init: null
+    pooling_func: ASTP
+    pretrained_path: microsoft/wavlm-large
+  wavlm_type: WavLMSpeaker
+  wav_scp_path: data/tidyvoice_train/wav.scp
+noise_data: data/musan/lmdb
+num_avg: 3
+num_epochs: 30
+optimizer: AdamW
+optimizer_args:
+  lr: 4.0e-05
+  weight_decay: 0.05
+projection_args:
+  do_lm: false
+  easy_margin: false
+  embed_dim: 256
+  num_class: 3666
+  project_type: arc_margin
+  scale: 56.0
+reverb_data: data/rirs/lmdb
+save_epoch_interval: 3
+scheduler: ExponentialDecrease
+scheduler_args:
+  epoch_iter: 5463
+  final_lr: 1.0e-06
+  initial_lr: 4.0e-05
+  num_epochs: 30
+  scale_ratio: 1
+  warm_from_zero: true
+  warm_up_epoch: 2
+seed: 999
+train_data: data/tidyvoice_train/shard.list
+train_label: data/tidyvoice_train/utt2spk
+train_lang_label: data/tidyvoice_train/utt2lang

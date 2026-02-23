@@ -1,0 +1,117 @@
+# ResNet Language Model Config - CLEAN (No Augmentation)
+# Model: ResNetLanguageModel (ResNet34 + GRL/Language Head) - No Wav2Vec2
+# Augmentation: NONE (No Speed Perturb, No Noise, No SpecAug)
+
+# 1. Experiment Setup
+exp_dir: exp/resnet_lang_clean_run1
+num_epochs: 15
+save_epoch_interval: 5
+num_avg: 5
+seed: 42
+gpus: [0]
+enable_amp: true
+log_batch_interval: 100
+
+# 2. Dataset
+data_type: shard
+train_data: data/tidyvoice_train/shard.list
+train_label: data/tidyvoice_train/utt2spk
+train_lang_label: data/tidyvoice_train/utt2lang
+
+# 3. Dataloader
+dataloader_args:
+  batch_size: 48
+  drop_last: true
+  num_workers: 4      
+  pin_memory: true
+  prefetch_factor: 4
+
+# 4. Frontend & Augmentation
+dataset_args:
+  frontend: fbank
+  resample_rate: 16000
+  sample_num_per_epoch: 0
+  
+  # A. Online Noise/Reverb: OFF 
+  aug_prob: 0.0
+
+  # B. Speed Perturb: OFF
+  speed_perturb: false
+
+  fbank_args:
+    num_mel_bins: 80
+    frame_shift: 10
+    frame_length: 25
+  
+  # C. SpecAug: OFF
+  spec_aug: false
+  spec_aug_args:
+    num_t_mask: 3
+    num_f_mask: 2
+    max_t: 20
+    max_f: 16
+    prob: 0.6
+
+# 5. Model Architecture
+model: ResNetLanguageModel
+model_args:
+  resnet_type: SimAM_ResNet34_ASP
+  embed_dim: 256
+  
+  num_languages: 40
+  grl_lambda: 0.1          # Language Classification Head (GRL)
+
+  resnet_args:
+    model_init: exp/samresnet34_voxblink_ft_tidy/models_pretrained/avg_model.pt
+    embed_dim: 256
+    acoustic_dim: 80
+    dropout: 0.1
+    in_planes: 64
+
+# 6. Loss & Optimization
+loss: CrossEntropyLoss
+loss_args: {}
+
+projection_args:
+  project_type: arc_margin
+  scale: 56.0
+  easy_margin: false
+  embed_dim: 256
+  num_class: 3666
+  do_lm: false
+
+margin_scheduler: MarginScheduler
+margin_update:
+  initial_margin: 0.0
+  final_margin: 0.35
+  increase_start_epoch: 2
+  fix_start_epoch: 10
+  increase_type: linear
+  update_margin: true
+
+optimizer: AdamW
+optimizer_args:
+  lr: 4.0e-5
+  weight_decay: 0.05
+
+scheduler: ExponentialDecrease
+scheduler_args:
+  initial_lr: 4.0e-5
+  final_lr: 1.0e-6
+  warm_up_epoch: 2
+  warm_from_zero: true
+  num_epochs: 15
+  scale_ratio: 1.0
+
+# 7. Differential Learning Rates
+discriminative_lr:
+  enabled: true
+  lr_groups:
+    resnet_backbone: 0.25
+    resnet_head: 0.25
+    projection: 10.0
+    other: 1.0
+
+# 8. Augmentation Data
+noise_data: data/musan/lmdb
+reverb_data: data/rirs/lmdb

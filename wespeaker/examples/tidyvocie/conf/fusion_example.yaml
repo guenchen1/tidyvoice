@@ -1,0 +1,78 @@
+exp_dir: exp/fusion_example
+num_epochs: 1
+save_epoch_interval: 1
+num_avg: 1
+gpus: [0]
+enable_amp: true
+
+train_data: data/tidyvoice_train/shard.list
+train_label: data/tidyvoice_train/utt2spk
+
+dataloader_args:
+  batch_size: 4
+  drop_last: true
+  num_workers: 2
+  pin_memory: false
+  prefetch_factor: 2
+
+dataset_args:
+  frontend: raw_fbank  # 你需要自訂一個能同時產生 wav/feat 的 frontend
+  resample_rate: 16000
+  sample_num_per_epoch: 0
+  speed_perturb: false
+  fbank_args: 
+    num_mel_bins: 80
+    frame_shift: 10
+    frame_length: 25
+
+model: FusionSpeakerModel
+model_args:
+  w2v2_type: Wav2Vec2Speaker
+  resnet_type: SimAM_ResNet34_ASP
+  embed_dim: 512
+  w2v2_args:
+    embed_dim: 256
+    pooling_func: ASTP
+    pretrained_path: exp/wav2vec2_xlsr_6epoch/wav2vec2-xls-r-300m
+    freeze_feature_extractor: true
+    freeze_all_layers: false
+    model_init: null
+    feat_dim: 1024
+  resnet_args:
+    embed_dim: 256
+    in_planes: 64
+    acoustic_dim: 80
+    dropout: 0.1
+    model_init: exp/samresnet34_voxblink_ft_tidy/models_pretrained/avg_model.pt
+
+projection_args:
+  project_type: arc_margin
+  scale: 32.0
+  easy_margin: false
+
+log_batch_interval: 100
+
+loss: CrossEntropyLoss
+loss_args: {}
+optimizer: Adam
+optimizer_args:
+  lr: 1.0e-4
+  weight_decay: 0.0
+
+scheduler: ExponentialDecrease
+scheduler_args:
+  initial_lr: 1.0e-4
+  final_lr: 1.0e-6
+  warm_up_epoch: 0
+  scale_ratio: 1
+seed: 42
+
+margin_update:
+  increase_start_epoch: 1
+  fix_start_epoch: 2
+  initial_margin: 0.0
+  final_margin: 0.1
+  update_margin: true
+  epoch_iter: 0
+  increase_type: linear
+margin_scheduler: MarginScheduler

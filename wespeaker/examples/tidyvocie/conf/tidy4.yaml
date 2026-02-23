@@ -1,0 +1,80 @@
+data_type: shard
+dataloader_args:
+  batch_size: 48
+  drop_last: true
+  num_workers: 8
+  pin_memory: true
+  prefetch_factor: 4
+dataset_args:
+  fbank_args:
+    frame_length: 25
+    frame_shift: 10
+    num_mel_bins: 80
+  frontend: raw_fbank
+  resample_rate: 16000
+  sample_num_per_epoch: 0
+  spec_aug: false
+  speed_perturb: false
+enable_amp: true
+exp_dir: exp/fusion_wav2vec2_samresnet34_voxblink_ft_tidy4
+gpus:
+- 0
+log_batch_interval: 100
+loss: CrossEntropyLoss
+loss_args: {}
+margin_scheduler: MarginScheduler
+margin_update:
+  epoch_iter: 5463
+  final_margin: 0.35
+  fix_start_epoch: 8
+  increase_start_epoch: 2
+  increase_type: linear
+  initial_margin: 0.1
+  update_margin: true
+model: FusionSpeakerModel
+model_args:
+  embed_dim: 512
+  resnet_args:
+    acoustic_dim: 80
+    dropout: 0.1
+    embed_dim: 256
+    in_planes: 64
+    model_init: exp/samresnet34_voxblink_ft_tidy/models_pretrained/avg_model.pt
+  resnet_type: SimAM_ResNet34_ASP
+  w2v2_args:
+    embed_dim: 256
+    feat_dim: 1024
+    freeze_all_layers: false
+    freeze_feature_extractor: true
+    model_init: null
+    pooling_func: ASTP
+    pretrained_path: exp/wav2vec2_xlsr_6epoch/wav2vec2-xls-r-300m
+  w2v2_type: Wav2Vec2Speaker
+  wav_scp_path: data/tidyvoice_train/wav.scp
+noise_data: data/musan/lmdb
+num_avg: 1
+num_epochs: 20
+optimizer: AdamW
+optimizer_args:
+  lr: 5.0e-05
+  weight_decay: 0.01
+projection_args:
+  do_lm: false
+  easy_margin: false
+  embed_dim: 512
+  num_class: 3666
+  project_type: arc_margin
+  scale: 32.0
+reverb_data: data/rirs/lmdb
+save_epoch_interval: 1
+scheduler: ExponentialDecrease
+scheduler_args:
+  epoch_iter: 5463
+  final_lr: 2.0e-06
+  initial_lr: 5.0e-05
+  num_epochs: 20
+  scale_ratio: 1
+  warm_up_epoch: 0
+seed: 42
+train_data: data/tidyvoice_train/shard.list
+train_label: data/tidyvoice_train/utt2spk

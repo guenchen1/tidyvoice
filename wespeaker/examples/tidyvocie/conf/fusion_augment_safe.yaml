@@ -1,0 +1,117 @@
+# Fusion Model Optimization - Run 9 (Short-Audio Safe Augmentation)
+# Strategy:
+# 1. Base: Run 8 settings (Scale 56, Margin 0.35, LR 4.0e-5, 20 Epochs)
+# 2. Add Online Noise/Reverb (aug_prob 0.5) - 防止過度擬合的主力，對短音訊安全
+# 3. Add Safe SpecAug (max_t 10) - 保護 ResNet 分支，參數保守以免遮蓋短音訊
+# 4. Add Mild Feature Masking (prob 0.1) - 保護 Wav2Vec2 分支
+
+# 1. 實驗目錄與時程
+exp_dir: exp/fusion_finetune_tidyvoice_run9_safe_aug
+num_epochs: 20
+save_epoch_interval: 5
+num_avg: 5
+seed: 42
+gpus: [0]
+enable_amp: true
+log_batch_interval: 100
+
+# 2. 數據集路徑
+train_data: data/tidyvoice_train/shard.list
+train_label: data/tidyvoice_train/utt2spk
+
+# 3. 資料讀取
+dataloader_args:
+  batch_size: 48
+  drop_last: true
+  num_workers: 8
+  pin_memory: true
+  prefetch_factor: 4
+
+# 4. 前端處理 & 增強 (短音訊安全版)
+dataset_args:
+  frontend: raw_fbank
+  resample_rate: 16000
+  sample_num_per_epoch: 0
+  speed_perturb: false            # [關閉] 保護 Wav2Vec2 避免對齊問題
+  
+  # A. 線上噪聲與殘響增強 (雙分支共用)
+  aug_prob: 0.5                   # 50% 機率加入背景音或殘響
+
+  fbank_args: 
+    num_mel_bins: 80
+    frame_shift: 10
+    frame_length: 25
+  
+  # B. SpecAug (保護 ResNet) - 保守設定
+  spec_aug: true
+  spec_aug_args:
+    num_t_mask: 1                 # 只遮 1 個時間塊
+    num_f_mask: 1                 # 只遮 1 個頻率塊
+    max_t: 10                     # 最大只遮 0.1 秒 (對短音訊極度安全)
+    max_f: 8                      # 頻率遮蔽適中
+    prob: 0.5                     # 50% 機率觸發
+
+# 5. 模型架構
+model: FusionSpeakerModel
+model_args:
+  w2v2_type: Wav2Vec2Speaker
+  resnet_type: SimAM_ResNet34_ASP
+  embed_dim: 512
+  wav_scp_path: data/tidyvoice_train/wav.scp 
+
+  w2v2_args:
+    embed_dim: 256
+    pooling_func: ASTP
+    feat_dim: 1024
+    pretrained_path: exp/wav2vec2_xlsr_6epoch/wav2vec2-xls-r-300m
+    freeze_feature_extractor: true
+    freeze_all_layers: false
+    model_init: null
+    
+    # C. Feature Masking (保護 Wav2Vec2) - 溫和設定
+    mask_prob: 0.1                # 只遮 10%，防止短音訊資訊丟失
+    mask_channel_prob: 0.1        # 只遮 10% 通道
+
+  resnet_args:
+    embed_dim: 256
+    in_planes: 64
+    acoustic_dim: 80
+    dropout: 0.1
+    model_init: exp/samresnet34_voxblink_ft_tidy/models_pretrained/avg_model.pt
+
+# 6. Loss (Run 8 設定: High Scale)
+projection_args:
+  project_type: arc_margin
+  scale: 56.0                     # 保持高 Scale 以獲得銳利邊界
+  easy_margin: false
+loss: CrossEntropyLoss
+loss_args: {}
+
+# 7. 優化器 (Run 8 設定: Stable LR)
+optimizer: AdamW
+optimizer_args:
+  lr: 4.0e-5                      # 配合高 Scale 的穩定 LR
+  weight_decay: 0.01
+
+# 8. 學習率排程
+scheduler: ExponentialDecrease
+scheduler_args:
+  initial_lr: 4.0e-5
+  final_lr: 1.0e-6
+  warm_up_epoch: 0
+  scale_ratio: 1
+
+# 9. Margin 排程 (Run 8 設定: Sweet Spot)
+margin_update:
+  increase_start_epoch: 2
+  fix_start_epoch: 10
+  initial_margin: 0.1
+  final_margin: 0.35            # 經驗證的最佳幾何約束
+  update_margin: true
+  epoch_iter: 0
+  increase_type: linear
+margin_scheduler: MarginScheduler
+
+# 增強資料來源
+noise_data: data/musan/lmdb
+reverb_data: data/rirs/lmdb

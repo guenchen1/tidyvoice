@@ -1,0 +1,115 @@
+# Fusion Model Optimization V2 (Target: EER < 2.0%)
+# Strategy: Harder Margin + Higher Backbone LR + Aggressive Augmentation + High Weight Decay
+
+# 1. Experiment Setup
+exp_dir: exp/fusion_diff_lr_optimized_v2
+num_epochs: 30
+save_epoch_interval: 5
+num_avg: 10                       # Increase average model count for stability
+seed: 999                         # Change seed to break stagnation
+gpus: [0]
+enable_amp: true
+log_batch_interval: 100           # FIXED: Prevent KeyError
+
+# 2. Dataset
+train_data: data/tidyvoice_train/shard.list
+train_label: data/tidyvoice_train/utt2spk
+train_lang_label: data/tidyvoice_train/utt2lang
+
+# 3. Dataloader
+dataloader_args:
+  batch_size: 48
+  drop_last: true
+  num_workers: 8
+  pin_memory: true
+  prefetch_factor: 4
+
+# 4. Frontend & Augmentation (Aggressive SpecAug)
+dataset_args:
+  frontend: raw_fbank
+  resample_rate: 16000
+  sample_num_per_epoch: 0
+  speed_perturb: false            # Keep False for speed, use SpecAug instead
+  fbank_args: 
+    num_mel_bins: 80
+    frame_shift: 10
+    frame_length: 25
+  spec_aug: false
+  spec_aug_args:
+    num_t_mask: 3                 # Increased: 2 -> 3 (Harder masking)
+    num_f_mask: 2
+    max_t: 20
+    max_f: 16
+    prob: 0.6                     # Increased: 0.5 -> 0.6 (More frequent augmentation)
+
+# 5. Model Architecture
+model: FusionSpeakerModel
+model_args:
+  w2v2_type: Wav2Vec2Speaker
+  resnet_type: SimAM_ResNet34_ASP
+  embed_dim: 256
+  wav_scp_path: data/tidyvoice_train/wav.scp 
+  
+  num_languages: 40
+  grl_lambda: 0.1
+
+  w2v2_args:
+    embed_dim: 256
+    pooling_func: ASTP
+    feat_dim: 1024
+    pretrained_path: exp/wav2vec2_xlsr_6epoch/wav2vec2-xls-r-300m
+    freeze_feature_extractor: true
+    freeze_all_layers: false
+    model_init: null
+
+  resnet_args:
+    embed_dim: 256
+    in_planes: 64
+    acoustic_dim: 80
+    dropout: 0.1
+    model_init: exp/samresnet34_voxblink_ft_tidy/models_pretrained/avg_model.pt
+
+# 6. Loss & Projection
+projection_args:
+  project_type: arc_margin
+  scale: 56.0
+  easy_margin: false
+loss: CrossEntropyLoss
+loss_args: {}
+
+# 7. Optimizer & Differential LR
+optimizer: AdamW
+optimizer_args:
+  lr: 4.0e-5
+  weight_decay: 0.05              # Increased: 0.01 -> 0.05 (Stronger regularization)
+
+discriminative_lr:
+  enabled: true
+  lr_groups:
+    w2v2_backbone: 0.25           # Increased: 0.1 -> 0.25 (Unlock backbone adjusting)
+    w2v2_head: 0.25
+    resnet_backbone: 0.25
+    resnet_head: 0.25
+    fusion: 10.0
+    projection: 10.0
+    other: 1.0
+
+# 8. Learning Rate Scheduler
+scheduler: ExponentialDecrease
+scheduler_args:
+  final_lr: 1.0e-6
+  initial_lr: 4.0e-5
+  num_epochs: 30
+  scale_ratio: 1
+  warm_up_epoch: 2
+  warm_from_zero: true
+
+# 9. Margin Scheduler (Harder Target, Slower Curriculum)
+margin_scheduler: MarginScheduler
+margin_update:
+  initial_margin: 0.0
+  final_margin: 0.35              # Increased: 0.3 -> 0.35 (Harder target)
+  increase_start_epoch: 2
+  fix_start_epoch: 22             # Delayed: 15 -> 22 (More time to adapt)
+  update_margin: true
+  increase_type: linear
